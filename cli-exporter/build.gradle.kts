@@ -18,7 +18,7 @@ dependencies {
     implementation("de.javagl:jgltf-impl-v2:2.0.3")
     
     // For JSON serialization
-    implementation("com.fasterxml.jackson.core:jackson-databind:2.13.2.1")
+    implementation("com.fasterxml.jackson.core:jackson-databind:2.15.4")
 }
 
 tasks.jar {

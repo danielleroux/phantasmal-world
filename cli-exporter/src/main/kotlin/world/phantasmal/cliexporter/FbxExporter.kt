@@ -18,8 +18,8 @@ object FbxExporter {
             writeGlobalSettings(writer, motion)
             writeDocuments(writer)
             writeDefinitions(writer, ninjaObject.boneCount(), motion)
-            writeObjects(writer, ninjaObject, motion)
-            writeConnections(writer, ninjaObject, motion)
+            val curveIds = writeObjects(writer, ninjaObject, motion)
+            writeConnections(writer, ninjaObject, motion, curveIds)
         }
     }
     
@@ -90,7 +90,7 @@ object FbxExporter {
         writer.println()
     }
     
-    private fun writeObjects(writer: PrintWriter, ninjaObject: NinjaObject<*, *>, motion: NjMotion) {
+    private fun writeObjects(writer: PrintWriter, ninjaObject: NinjaObject<*, *>, motion: NjMotion): Pair<Long, Long> {
         writer.println("Objects:  {")
         
         // Write bone models
@@ -114,10 +114,12 @@ object FbxExporter {
         writer.println()
         
         // Write animation curves for each bone
-        writeAnimationCurves(writer, ninjaObject, motion, boneIndices)
+        val curveIds = writeAnimationCurves(writer, ninjaObject, motion, boneIndices)
         
         writer.println("}")
         writer.println()
+        
+        return curveIds
     }
     
     private fun writeBoneModels(
@@ -179,7 +181,7 @@ object FbxExporter {
         ninjaObject: NinjaObject<*, *>,
         motion: NjMotion,
         boneIndices: Map<NinjaObject<*, *>, Int>
-    ) {
+    ): Pair<Long, Long> {
         val boneCount = ninjaObject.boneCount()
         var curveNodeId = 4000000000L
         var curveId = 5000000000L
@@ -255,8 +257,7 @@ object FbxExporter {
             }
         }
         
-        // Store curve node IDs for connection phase
-        ninjaObject.setProperty("curveNodeIds", curveNodeIds)
+        return Pair(curveNodeId, curveId)
     }
     
     private fun writeAnimationCurveNode(
@@ -477,7 +478,8 @@ object FbxExporter {
     private fun writeConnections(
         writer: PrintWriter,
         ninjaObject: NinjaObject<*, *>,
-        motion: NjMotion
+        motion: NjMotion,
+        curveIds: Pair<Long, Long>
     ) {
         writer.println("Connections:  {")
         
@@ -490,7 +492,7 @@ object FbxExporter {
         writer.println()
         
         // Connect animation curves to bones
-        writeAnimationConnections(writer, ninjaObject, motion, boneIndices)
+        writeAnimationConnections(writer, ninjaObject, motion, boneIndices, curveIds.first, curveIds.second)
         
         writer.println("}")
         writer.println()
@@ -531,11 +533,13 @@ object FbxExporter {
         writer: PrintWriter,
         ninjaObject: NinjaObject<*, *>,
         motion: NjMotion,
-        boneIndices: Map<NinjaObject<*, *>, Int>
+        boneIndices: Map<NinjaObject<*, *>, Int>,
+        startCurveNodeId: Long,
+        startCurveId: Long
     ) {
         val boneCount = ninjaObject.boneCount()
-        var curveNodeId = 4000000000L
-        var curveId = 5000000000L
+        var curveNodeId = startCurveNodeId
+        var curveId = startCurveId
         
         for ((boneIndex, motionData) in motion.motionData.withIndex()) {
             if (boneIndex >= boneCount) {
@@ -591,11 +595,5 @@ object FbxExporter {
     
     private fun frameToKTime(frame: Int): Long {
         return (frame / PSO_FRAME_RATE * KTIME_PER_SECOND).toLong()
-    }
-    
-    // Extension function to store properties (workaround for read-only NinjaObject)
-    private fun NinjaObject<*, *>.setProperty(key: String, value: Any) {
-        // This is a hack since NinjaObject is read-only
-        // In practice, we don't need to store this as we can recalculate
     }
 }
