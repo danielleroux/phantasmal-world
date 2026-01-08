@@ -16,11 +16,27 @@ private const val KTIME_PER_SECOND = 46186158000L
 
 class FbxExporter {
     private var nextId = 100000L
+    private val animStackId = 10000001L
+    private val animLayerId = 10000002L
+    
+    // Track animation curve connections for linking in Connections section
+    private data class CurveConnection(
+        val curveNodeId: Long,
+        val curveXId: Long,
+        val curveYId: Long,
+        val curveZId: Long,
+        val boneId: Long,
+        val channel: String // "T", "R", or "S"
+    )
+    private val curveConnections = mutableListOf<CurveConnection>()
 
     fun export(
         geometryObjects: List<NinjaObject<*, *>>,
         animation: NjMotion
     ): String {
+        // Reset state for new export
+        curveConnections.clear()
+        
         if (geometryObjects.isEmpty()) {
             throw IllegalArgumentException("Geometry objects list is empty")
         }
@@ -157,7 +173,15 @@ Documents:  {
         val bones = mutableListOf<BoneInfo>()
         var boneIndex = 0
 
-        fun traverseObject(obj: NinjaObject<*, *>, parentIndex: Int?) {
+        fun traverseObject(obj: NinjaObject<*, *>, parentIndex: Int?): Unit {
+            fun traverseChildren(currentParentIndex: Int?) {
+                if (!obj.evaluationFlags.breakChildTrace) {
+                    for (child in obj.children) {
+                        traverseObject(child, currentParentIndex)
+                    }
+                }
+            }
+
             if (!obj.evaluationFlags.skip) {
                 val currentIndex = boneIndex++
                 bones.add(
@@ -169,19 +193,10 @@ Documents:  {
                         parentIndex = parentIndex
                     )
                 )
-
-                if (!obj.evaluationFlags.breakChildTrace) {
-                    for (child in obj.children) {
-                        traverseObject(child, currentIndex)
-                    }
-                }
+                traverseChildren(currentIndex)
             } else {
                 // Still need to traverse children even if this node is skipped
-                if (!obj.evaluationFlags.breakChildTrace) {
-                    for (child in obj.children) {
-                        traverseObject(child, parentIndex)
-                    }
-                }
+                traverseChildren(parentIndex)
             }
         }
 
@@ -201,8 +216,6 @@ Documents:  {
         writeAnimationCurves(sb, bones, animation)
 
         // Write animation stack
-        val animStackId = nextId++
-        val animLayerId = nextId++
         sb.append("""
     AnimationStack: $animStackId, "AnimStack::Take 001", "" {
         Properties70:  {
@@ -292,6 +305,18 @@ Documents:  {
         val curveYId = nextId++
         val curveZId = nextId++
 
+        // Track this connection for later use in Connections section
+        curveConnections.add(
+            CurveConnection(
+                curveNodeId = curveNodeId,
+                curveXId = curveXId,
+                curveYId = curveYId,
+                curveZId = curveZId,
+                boneId = bone.id,
+                channel = channel
+            )
+        )
+
         // Write AnimationCurveNode
         sb.append("""
     AnimationCurveNode: $curveNodeId, "AnimCurveNode::$channel", "" {
@@ -357,15 +382,31 @@ Documents:  {
             }
         }
 
-        // Connect animation curves to bones
-        for (boneIndex in bones.indices) {
-            if (boneIndex >= animation.motionData.size) continue
+        // Connect animation layer to animation stack
+        sb.append("    ;AnimLayer::BaseLayer, AnimStack::Take 001\n")
+        sb.append("    C: \"OO\",$animLayerId,$animStackId\n\n")
 
-            val motionData = animation.motionData[boneIndex]
-            val bone = bones[boneIndex]
+        // Connect animation curve nodes to bones and animation layer
+        for (connection in curveConnections) {
+            // Connect curve node to bone's property
+            val property = when (connection.channel) {
+                "T" -> "Lcl Translation"
+                "R" -> "Lcl Rotation"
+                "S" -> "Lcl Scaling"
+                else -> connection.channel
+            }
+            sb.append("    ;AnimCurveNode::${connection.channel}, Model::Bone_${bones.find { it.id == connection.boneId }?.index}\n")
+            sb.append("    C: \"OP\",${connection.curveNodeId},${connection.boneId}, \"$property\"\n\n")
 
-            // This is simplified - in a full implementation, we'd track all the curve node IDs
-            // For now, this structure is sufficient for the FBX format
+            // Connect curve node to animation layer
+            sb.append("    ;AnimCurveNode::${connection.channel}, AnimLayer::BaseLayer\n")
+            sb.append("    C: \"OO\",${connection.curveNodeId},$animLayerId\n\n")
+
+            // Connect individual curves (X, Y, Z) to the curve node
+            sb.append("    ;AnimCurve::, AnimCurveNode::${connection.channel}\n")
+            sb.append("    C: \"OP\",${connection.curveXId},${connection.curveNodeId}, \"d|X\"\n")
+            sb.append("    C: \"OP\",${connection.curveYId},${connection.curveNodeId}, \"d|Y\"\n")
+            sb.append("    C: \"OP\",${connection.curveZId},${connection.curveNodeId}, \"d|Z\"\n\n")
         }
 
         sb.append("}\n\n")
