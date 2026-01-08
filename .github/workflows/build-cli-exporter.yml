@@ -1,0 +1,46 @@
+name: Build CLI Exporter
+
+on:
+  push:
+    branches: [ master ]
+    paths:
+      - 'cli-exporter/**'
+      - 'core/**'
+      - 'psolib/**'
+      - '.github/workflows/build-cli-exporter.yml'
+  pull_request:
+    branches: [ master ]
+    paths:
+      - 'cli-exporter/**'
+      - 'core/**'
+      - 'psolib/**'
+      - '.github/workflows/build-cli-exporter.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build CLI Exporter
+        run: './gradlew :cli-exporter:build'
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-exporter-jar
+          path: cli-exporter/build/libs/cli-exporter.jar
+          retention-days: 90
+          if-no-files-found: error
