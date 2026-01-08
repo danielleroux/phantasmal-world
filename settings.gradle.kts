@@ -5,6 +5,7 @@ plugins {
 rootProject.name = "phantasmal-world"
 
 include(
+    ":cli-exporter",
     ":core",
     ":psolib",
     ":cell",
