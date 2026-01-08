@@ -8,6 +8,7 @@ include(
     ":core",
     ":psolib",
     ":cell",
+    ":cli-exporter",
     ":psoserv",
     ":test-utils",
     ":web",
